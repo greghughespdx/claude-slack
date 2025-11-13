@@ -176,13 +176,13 @@ for key in ["SLACK_BOT_TOKEN", "REGISTRY_DATA_DIR", "CLAUDE_TRANSCRIPT_PATH"]:
 def log_error(message: str):
     """Log error to stderr (visible in Claude logs, doesn't block user)"""
     debug_log(f"ERROR: {message}", "ERROR")
-    print(f"[on_stop.py] ERROR: {message}", file=sys.stderr)
+    print(f"[on_notification.py] ERROR: {message}", file=sys.stderr)
 
 
 def log_info(message: str):
     """Log info to stderr"""
     debug_log(message, "INFO")
-    print(f"[on_stop.py] {message}", file=sys.stderr)
+    print(f"[on_notification.py] {message}", file=sys.stderr)
 
 
 def split_message(text: str, max_length: int = 39000) -> list:
@@ -216,6 +216,82 @@ def split_message(text: str, max_length: int = 39000) -> list:
         text = text[break_point:].lstrip('\n')
 
     return chunks
+
+
+def enhance_notification_message(
+    message: str,
+    notification_type: str,
+    transcript_path: str,
+    session_id: str
+) -> str:
+    """
+    Enhance notification message with additional context from transcript.
+
+    Args:
+        message: Base notification message from Claude Code
+        notification_type: Type of notification (permission_prompt, idle_prompt, etc.)
+        transcript_path: Path to session transcript
+        session_id: Claude session ID
+
+    Returns:
+        Enhanced message with formatting and context
+    """
+    enhanced = message
+
+    try:
+        # Import transcript parser
+        from transcript_parser import TranscriptParser
+
+        # For permission prompts, try to extract the specific tool name
+        if notification_type == "permission_prompt" and os.path.exists(transcript_path):
+            parser = TranscriptParser(transcript_path)
+            if parser.load():
+                # Get last assistant message
+                response = parser.get_latest_assistant_response(
+                    include_tool_calls=True,
+                    text_only=False
+                )
+
+                if response and response.get('tool_calls'):
+                    # Get the last tool call (the one waiting for permission)
+                    last_tool = response['tool_calls'][-1]
+                    tool_name = last_tool.get('name', '')
+
+                    # Format with emoji and tool details
+                    enhanced = f"⚠️ **Permission Required: {tool_name}**\n\n{message}"
+
+                    # Add a snippet of the tool's purpose if there's text
+                    if response.get('text'):
+                        snippet = response['text'][:200].strip()
+                        if snippet:
+                            enhanced += f"\n\n_Context: {snippet}..._"
+
+        # For idle prompts, include context about what Claude last said
+        elif notification_type == "idle_prompt" and os.path.exists(transcript_path):
+            parser = TranscriptParser(transcript_path)
+            if parser.load():
+                response = parser.get_latest_assistant_response()
+                if response and response.get('text'):
+                    snippet = response['text'][:300].strip()
+                    enhanced = f"⏰ **{message}**\n\n_Last message: {snippet}..._"
+                else:
+                    enhanced = f"⏰ {message}"
+
+        # For other notification types, just add emoji
+        elif notification_type == "auth_success":
+            enhanced = f"✅ {message}"
+        elif notification_type == "elicitation_dialog":
+            enhanced = f"❓ {message}"
+        else:
+            # Unknown type or no type - just pass through
+            enhanced = f"🔔 {message}"
+
+    except Exception as e:
+        # If enhancement fails, log it but return original message
+        debug_log(f"Failed to enhance notification: {e}", "ERROR")
+        enhanced = message
+
+    return enhanced
 
 
 def post_to_slack(channel: str, thread_ts: str, text: str, bot_token: str):
@@ -288,9 +364,13 @@ def main():
         # Extract hook parameters
         session_id = hook_data.get("session_id")
         notification_message = hook_data.get("message")
+        notification_type = hook_data.get("notification_type", "unknown")
+        transcript_path = hook_data.get("transcript_path")
 
         debug_log(f"session_id: {session_id}", "INPUT")
         debug_log(f"notification_message: {notification_message}", "INPUT")
+        debug_log(f"notification_type: {notification_type}", "INPUT")
+        debug_log(f"transcript_path: {transcript_path}", "INPUT")
 
         if not session_id:
             log_error("No session_id in hook data")
@@ -301,6 +381,7 @@ def main():
             sys.exit(0)
 
         log_info(f"Processing notification for session {session_id[:8]}")
+        log_info(f"Notification type: {notification_type}")
         log_info(f"Notification: {notification_message}")
 
         # Query registry database for session metadata
@@ -387,10 +468,19 @@ def main():
             log_error("SLACK_BOT_TOKEN not set")
             sys.exit(0)
 
-        debug_log("Bot token found, posting to Slack...", "SLACK")
+        debug_log("Bot token found, enhancing notification message...", "SLACK")
+
+        # Enhance notification message with context
+        enhanced_message = enhance_notification_message(
+            notification_message,
+            notification_type,
+            transcript_path,
+            session_id
+        )
+        debug_log(f"Enhanced message (first 200 chars): {enhanced_message[:200]}", "SLACK")
 
         # Post notification to Slack
-        success = post_to_slack(slack_channel, slack_thread_ts, notification_message, bot_token)
+        success = post_to_slack(slack_channel, slack_thread_ts, enhanced_message, bot_token)
 
         if success:
             log_info("Successfully posted to Slack")
