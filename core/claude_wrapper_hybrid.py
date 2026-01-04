@@ -374,13 +374,15 @@ class RegistryClient:
             debug_log(f"Registry communication error: {e}")
             return None
 
-    def register(self, project, terminal, socket_path):
+    def register(self, project, terminal, socket_path, project_dir, wrapper_pid):
         """Register session with registry and create Slack thread"""
         data = {
             "session_id": self.session_id,
             "project": project,
             "terminal": terminal,
-            "socket_path": socket_path
+            "socket_path": socket_path,
+            "project_dir": project_dir,
+            "wrapper_pid": wrapper_pid
         }
 
         response = self._send_command("REGISTER", data)
@@ -571,7 +573,9 @@ class HybridPTYWrapper:
         success = self.registry.register(
             project=os.path.basename(self.project_dir),
             terminal=terminal,
-            socket_path=self.socket_path
+            socket_path=self.socket_path,
+            project_dir=self.project_dir,
+            wrapper_pid=os.getpid()
         )
 
         if success:

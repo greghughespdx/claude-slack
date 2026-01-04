@@ -1123,6 +1123,11 @@ def main():
                 notification_type = "idle_prompt"
                 debug_log("Inferred notification_type as idle_prompt from message content", "INPUT")
 
+        # Skip idle_prompt notifications - they're noisy and not useful for remote work
+        if notification_type == "idle_prompt":
+            debug_log("Skipping idle_prompt notification (disabled)", "INPUT")
+            sys.exit(0)
+
         debug_log(f"session_id: {session_id}", "INPUT")
         debug_log(f"notification_message: {notification_message}", "INPUT")
         debug_log(f"notification_type: {notification_type}", "INPUT")
@@ -1164,6 +1169,14 @@ def main():
 
         if not session:
             log_error(f"Session {session_id[:8]} not found in registry")
+            sys.exit(0)
+
+        # Check if Slack mirroring is enabled for this session
+        # Note: Database stores "true"/"false" as strings, not booleans
+        slack_enabled = session.get("slack_enabled", "true")
+        if slack_enabled == "false" or slack_enabled is False:
+            log_info(f"Slack mirroring disabled for session {session_id[:8]}, skipping")
+            debug_log("slack_enabled=false, skipping Slack post", "REGISTRY")
             sys.exit(0)
 
         # Extract Slack metadata

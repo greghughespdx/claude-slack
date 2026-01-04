@@ -146,11 +146,122 @@ claude-slack
 After adding `~/.claude/claude-slack/bin` to your PATH:
 
 - `claude-slack` - Initialize Slack for current project
+- `claude-slack-hybrid` - Start Claude with PTY wrapper (supports `!restart`)
 - `claude-slack-listener` - Start the Slack listener daemon
+- `claude-slack-registry` - Start the session registry service
+- `claude-slack-ensure` - Ensure listener and registry are running
 - `claude-slack-test` - Test Slack connection
-- `claude-slack-ensure` - Ensure listener is running
 - `claude-slack-sessions` - List active sessions
 - `claude-slack-cleanup` - Clean up stale sessions
+- `claude-slack-health` - Check listener health
+
+## Slack Commands
+
+From within a session's Slack thread, you can send these commands:
+
+| Command | Shortcut | Description |
+|---------|----------|-------------|
+| `!slack on` | `!on` | Enable Slack mirroring for session |
+| `!slack off` | `!off` | Disable Slack mirroring |
+| `!slack status` | `!status` | Check current mirroring status |
+| `!restart` | - | Kill and restart the Claude session |
+
+The `!restart` command requires using `claude-slack-hybrid` to start your session.
+
+## Running as Background Services (launchd)
+
+For persistent operation, you can run the listener and registry as macOS launchd services:
+
+### Create the plist files
+
+**Listener service** (`~/Library/LaunchAgents/com.claude-slack.listener.plist`):
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.claude-slack.listener</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/YOUR_USER/.claude/claude-slack/.venv/bin/python3</string>
+        <string>-u</string>
+        <string>/Users/YOUR_USER/.claude/claude-slack/core/slack_listener.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/YOUR_USER/.claude/claude-slack</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USER/.claude/slack/logs/launchd_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USER/.claude/slack/logs/launchd_stderr.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <key>SLACK_BOT_TOKEN</key>
+        <string>xoxb-your-token</string>
+        <key>SLACK_APP_TOKEN</key>
+        <string>xapp-your-token</string>
+        <key>SLACK_CHANNEL</key>
+        <string>#your-channel</string>
+    </dict>
+</dict>
+</plist>
+```
+
+**Registry service** (`~/Library/LaunchAgents/com.claude-slack.registry.plist`):
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.claude-slack.registry</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/YOUR_USER/.claude/claude-slack/bin/claude-slack-registry</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/YOUR_USER/.claude/claude-slack</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USER/.claude/slack/logs/registry_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USER/.claude/slack/logs/registry_stderr.log</string>
+</dict>
+</plist>
+```
+
+### Load the services
+
+```bash
+# Create log directory
+mkdir -p ~/.claude/slack/logs
+
+# Load services
+launchctl load ~/Library/LaunchAgents/com.claude-slack.listener.plist
+launchctl load ~/Library/LaunchAgents/com.claude-slack.registry.plist
+
+# Verify running
+launchctl list | grep claude-slack
+```
+
+### Manage services
+
+```bash
+# Stop services
+launchctl unload ~/Library/LaunchAgents/com.claude-slack.listener.plist
+
+# View logs
+tail -f ~/.claude/slack/logs/launchd_stdout.log
+```
 
 ## Troubleshooting
 

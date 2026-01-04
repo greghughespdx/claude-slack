@@ -143,6 +143,161 @@ def get_socket_for_thread(thread_ts):
         return None
 
 
+def _handle_slack_toggle(thread_ts: str, enabled: bool, channel: str, message_ts: str, say):
+    """Toggle Slack mirroring for a session via Slack command."""
+    try:
+        db = RegistryDatabase(REGISTRY_DB_PATH)
+        session = db.get_by_thread(thread_ts)
+
+        if not session:
+            say(f"⚠️ No active session found for this thread.", thread_ts=thread_ts)
+            return
+
+        session_id = session.get('session_id')
+
+        # Update ALL sessions with this thread_ts (wrapper + Claude sessions)
+        import sqlite3
+        conn = sqlite3.connect(REGISTRY_DB_PATH)
+        conn.execute("UPDATE sessions SET slack_enabled=? WHERE slack_thread_ts=?",
+                     ('true' if enabled else 'false', thread_ts))
+        conn.commit()
+        conn.close()
+
+        status = "ENABLED ✅" if enabled else "DISABLED 🔇"
+        say(f"Slack mirroring {status} for this session.", thread_ts=thread_ts)
+        print(f"🔄 Slack mirroring {'enabled' if enabled else 'disabled'} for session {session_id}")
+
+        # Add reaction to acknowledge
+        try:
+            app.client.reactions_add(channel=channel, timestamp=message_ts, name="white_check_mark")
+        except:
+            pass
+
+    except Exception as e:
+        print(f"❌ Error toggling slack for thread {thread_ts}: {e}", file=sys.stderr)
+        say(f"⚠️ Error toggling Slack mirroring: {e}", thread_ts=thread_ts)
+
+
+def _handle_slack_status(thread_ts: str, channel: str, message_ts: str, say):
+    """Check Slack mirroring status for a session."""
+    try:
+        db = RegistryDatabase(REGISTRY_DB_PATH)
+        session = db.get_by_thread(thread_ts)
+
+        if not session:
+            say(f"⚠️ No active session found for this thread.", thread_ts=thread_ts)
+            return
+
+        enabled = session.get('slack_enabled', True)
+        status = "ENABLED ✅" if enabled else "DISABLED 🔇"
+        say(f"Slack mirroring is currently {status} for this session.", thread_ts=thread_ts)
+
+        # Add reaction
+        try:
+            app.client.reactions_add(channel=channel, timestamp=message_ts, name="white_check_mark")
+        except:
+            pass
+
+    except Exception as e:
+        print(f"❌ Error checking slack status for thread {thread_ts}: {e}", file=sys.stderr)
+        say(f"⚠️ Error checking status: {e}", thread_ts=thread_ts)
+
+
+def _handle_restart(thread_ts: str, channel: str, message_ts: str, say):
+    """
+    Handle !restart command - kill current session and start a new one.
+
+    This allows remote session management without needing terminal access.
+    """
+    import signal
+    import subprocess
+    import time
+
+    try:
+        db = RegistryDatabase(REGISTRY_DB_PATH)
+        session = db.get_active_session_by_thread(thread_ts, channel)
+
+        if not session:
+            say(f"⚠️ No active session found for this thread.", thread_ts=thread_ts)
+            return
+
+        project_dir = session.get('project_dir')
+        wrapper_pid = session.get('wrapper_pid')
+        session_id = session.get('session_id')
+
+        if not project_dir:
+            say(f"⚠️ Session {session_id[:8]} has no project_dir recorded. Cannot restart.", thread_ts=thread_ts)
+            return
+
+        say(f"🔄 Restarting session...", thread_ts=thread_ts)
+        print(f"🔄 Restart requested for session {session_id} (PID: {wrapper_pid})", file=sys.stderr)
+
+        # Step 1: Kill the old session
+        if wrapper_pid:
+            try:
+                os.kill(wrapper_pid, signal.SIGTERM)
+                print(f"   Sent SIGTERM to PID {wrapper_pid}", file=sys.stderr)
+                time.sleep(2)  # Give it time to cleanup
+
+                # Force kill if still alive
+                try:
+                    os.kill(wrapper_pid, signal.SIGKILL)
+                    print(f"   Sent SIGKILL to PID {wrapper_pid}", file=sys.stderr)
+                except ProcessLookupError:
+                    pass  # Already dead, good
+
+            except ProcessLookupError:
+                print(f"   Process {wrapper_pid} already gone", file=sys.stderr)
+
+        # Step 2: Mark old session as ended
+        db.end_session(session_id)
+        print(f"   Marked session {session_id} as ended", file=sys.stderr)
+
+        # Step 3: Find claude-slack binary
+        claude_slack_bin = os.path.expanduser("~/.claude/claude-slack/bin/claude-slack")
+        if not os.path.exists(claude_slack_bin):
+            # Try the symlink location
+            claude_slack_bin = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bin", "claude-slack")
+
+        if not os.path.exists(claude_slack_bin):
+            say(f"❌ Could not find claude-slack binary", thread_ts=thread_ts)
+            return
+
+        # Step 4: Start new session in background
+        print(f"   Starting new session in {project_dir}", file=sys.stderr)
+        subprocess.Popen(
+            [claude_slack_bin],
+            cwd=project_dir,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+        # Step 5: Wait for new session to register
+        time.sleep(5)
+        new_session = db.get_latest_session_for_project(project_dir)
+
+        if new_session:
+            new_id = new_session.get('session_id', 'unknown')[:8]
+            say(f"✅ Session restarted (new ID: {new_id})", thread_ts=thread_ts)
+            print(f"✅ Restart complete - new session {new_id}", file=sys.stderr)
+        else:
+            say(f"⚠️ New session started but not yet registered. Check terminal.", thread_ts=thread_ts)
+            print(f"⚠️ New session not found in registry after restart", file=sys.stderr)
+
+        # Add reaction
+        try:
+            app.client.reactions_add(channel=channel, timestamp=message_ts, name="arrows_counterclockwise")
+        except:
+            pass
+
+    except Exception as e:
+        print(f"❌ Error restarting session for thread {thread_ts}: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        say(f"❌ Restart failed: {e}", thread_ts=thread_ts)
+
+
 def send_response(text, thread_ts=None):
     """
     Send response to Claude Code
@@ -304,6 +459,46 @@ def handle_message(event, say):
         if not (text.startswith('/') or text.startswith('!') or text.isdigit()):
             return
 
+    # Handle !slack on/off toggle commands (with shortcuts: !on, !off, !status)
+    text_lower = text.lower().strip()
+    if text_lower in ('!slack on', '!slack enable', '/slack on', '/slack enable', '!on', '/on', '!enable'):
+        if thread_ts:
+            _handle_slack_toggle(thread_ts, True, channel, event["ts"], say)
+        else:
+            say("⚠️ Use this command in a session thread to enable Slack mirroring.")
+        return
+    elif text_lower in ('!slack off', '!slack disable', '/slack off', '/slack disable', '!off', '/off', '!disable'):
+        if thread_ts:
+            _handle_slack_toggle(thread_ts, False, channel, event["ts"], say)
+        else:
+            say("⚠️ Use this command in a session thread to disable Slack mirroring.")
+        return
+    elif text_lower in ('!slack status', '/slack status', '!status', '/status'):
+        if thread_ts:
+            _handle_slack_status(thread_ts, channel, event["ts"], say)
+        else:
+            say("⚠️ Use this command in a session thread to check Slack mirroring status.")
+        return
+    elif text_lower in ('!restart', '/restart'):
+        if thread_ts:
+            _handle_restart(thread_ts, channel, event["ts"], say)
+        else:
+            say("⚠️ Use this command in a session thread to restart the session.")
+        return
+
+    # Auto-enable mirroring if sending a message from Slack while disabled
+    # This ensures you see Claude's response when you engage from Slack
+    if thread_ts and registry_db:
+        session = registry_db.get_by_thread(thread_ts)
+        if session and session.get('slack_enabled') == 'false':
+            import sqlite3
+            conn = sqlite3.connect(REGISTRY_DB_PATH)
+            conn.execute("UPDATE sessions SET slack_enabled='true' WHERE slack_thread_ts=?", (thread_ts,))
+            conn.commit()
+            conn.close()
+            print(f"🔔 Auto-enabled mirroring for thread {thread_ts} (message sent while disabled)", file=sys.stderr)
+            say(text="✅ _Slack mirroring auto-enabled since you sent a message._", thread_ts=thread_ts)
+
     # Send response to Claude Code (registry socket, legacy socket, or file)
     mode = send_response(text, thread_ts=thread_ts)
 
@@ -415,6 +610,121 @@ def handle_reaction(body, client):
         print(f"📌 Added confirmation checkmark", file=sys.stderr)
     except Exception as e:
         print(f"⚠️  Could not add confirmation reaction: {e}", file=sys.stderr)
+
+
+# ========================================
+# Button Action Handlers
+# ========================================
+
+@app.action("slack_mirror_on")
+def handle_mirror_on(ack, body, client):
+    """Handle 'On' button click to enable Slack mirroring."""
+    ack()
+
+    action = body.get("actions", [{}])[0]
+    session_id = action.get("value", "")
+    channel = body.get("channel", {}).get("id")
+    thread_ts = body.get("message", {}).get("ts")
+    user = body.get("user", {}).get("id")
+
+    print(f"🔔 Mirror ON button clicked by {user} for session {session_id[:8]}", file=sys.stderr)
+
+    if not registry_db:
+        client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text="⚠️ Registry not available"
+        )
+        return
+
+    # Update ALL sessions with this thread_ts
+    import sqlite3
+    conn = sqlite3.connect(REGISTRY_DB_PATH)
+    conn.execute("UPDATE sessions SET slack_enabled='true' WHERE slack_thread_ts=?", (thread_ts,))
+    conn.commit()
+    conn.close()
+
+    client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text="✅ Slack mirroring *enabled* - you'll see Claude's responses here."
+    )
+
+
+@app.action("slack_mirror_off")
+def handle_mirror_off(ack, body, client):
+    """Handle 'Off' button click to disable Slack mirroring."""
+    ack()
+
+    action = body.get("actions", [{}])[0]
+    session_id = action.get("value", "")
+    channel = body.get("channel", {}).get("id")
+    thread_ts = body.get("message", {}).get("ts")
+    user = body.get("user", {}).get("id")
+
+    print(f"🔇 Mirror OFF button clicked by {user} for session {session_id[:8]}", file=sys.stderr)
+
+    if not registry_db:
+        client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text="⚠️ Registry not available"
+        )
+        return
+
+    # Update ALL sessions with this thread_ts
+    import sqlite3
+    conn = sqlite3.connect(REGISTRY_DB_PATH)
+    conn.execute("UPDATE sessions SET slack_enabled='false' WHERE slack_thread_ts=?", (thread_ts,))
+    conn.commit()
+    conn.close()
+
+    client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text="🔇 Slack mirroring *disabled* - Claude's responses won't appear here.\n_Send any message to re-enable._"
+    )
+
+
+@app.action("slack_mirror_status")
+def handle_mirror_status(ack, body, client):
+    """Handle 'Status' button click to show current session status."""
+    ack()
+
+    action = body.get("actions", [{}])[0]
+    session_id = action.get("value", "")
+    channel = body.get("channel", {}).get("id")
+    thread_ts = body.get("message", {}).get("ts")
+
+    print(f"📊 Status button clicked for session {session_id[:8]}", file=sys.stderr)
+
+    if not registry_db:
+        client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text="⚠️ Registry not available"
+        )
+        return
+
+    # Get session info
+    session = registry_db.get_by_thread(thread_ts)
+    if not session:
+        client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text="⚠️ Session not found in registry"
+        )
+        return
+
+    slack_enabled = session.get('slack_enabled', 'true')
+    mirror_status = "✅ Enabled" if slack_enabled == 'true' else "🔇 Disabled"
+    status = session.get('status', 'unknown')
+
+    client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text=f"📊 *Session Status*\n• Mirroring: {mirror_status}\n• Status: {status}\n• Session: `{session_id[:8]}`"
+    )
 
 
 def main():

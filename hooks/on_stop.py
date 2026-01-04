@@ -392,6 +392,14 @@ def main():
             log_error(f"Session {session_id[:8]} not found in registry")
             sys.exit(0)
 
+        # Check if Slack mirroring is enabled for this session
+        # Note: Database stores "true"/"false" as strings, not booleans
+        slack_enabled = session.get("slack_enabled", "true")
+        if slack_enabled == "false" or slack_enabled is False:
+            log_info(f"Slack mirroring disabled for session {session_id[:8]}, skipping")
+            debug_log("slack_enabled=false, skipping Slack post", "REGISTRY")
+            sys.exit(0)
+
         # Extract Slack metadata
         slack_channel = session.get("channel")
         slack_thread_ts = session.get("thread_ts")
