@@ -729,6 +729,24 @@ def handle_mirror_status(ack, body, client):
 
 def main():
     """Start the Slack bot in Socket Mode"""
+    # Ensure single instance via PID file
+    import fcntl
+    PID_FILE = os.path.expanduser("~/.claude/slack/slack_listener.pid")
+
+    # Create directory if needed
+    os.makedirs(os.path.dirname(PID_FILE), exist_ok=True)
+
+    # Try to acquire exclusive lock
+    pid_fp = open(PID_FILE, 'w')
+    try:
+        fcntl.flock(pid_fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        pid_fp.write(str(os.getpid()))
+        pid_fp.flush()
+    except IOError:
+        print("❌ Another slack_listener instance is already running", file=sys.stderr)
+        print(f"   PID file: {PID_FILE}", file=sys.stderr)
+        sys.exit(1)
+
     print("🚀 Starting Slack bot...")
     print(f"📁 Response file (fallback): {RESPONSE_FILE}")
     print(f"🔌 Legacy socket path: {SOCKET_PATH}")
@@ -770,6 +788,14 @@ def main():
         handler.start()
     except KeyboardInterrupt:
         print("\n👋 Slack bot stopped")
+    finally:
+        # Release PID lock
+        try:
+            fcntl.flock(pid_fp, fcntl.LOCK_UN)
+            pid_fp.close()
+            os.remove(PID_FILE)
+        except:
+            pass
         sys.exit(0)
 
 

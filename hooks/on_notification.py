@@ -737,8 +737,8 @@ def get_exact_permission_options(tool_name, tool_input, permission_mode="default
     # Extract the actual target from the command
     target = extract_target_from_command(tool_name, tool_input)
 
-    # Get project directory (hardcoded based on analysis)
-    project_dir = "/Users/danielbennett/codeNew/.claude/claude-slack"
+    # Get project directory dynamically from environment or cwd
+    project_dir = os.environ.get('CLAUDE_PROJECT_DIR', os.getcwd())
 
     # For 2-option scenarios (background process, /tmp operations)
     if expected_options == 2:
@@ -1172,9 +1172,9 @@ def main():
             sys.exit(0)
 
         # Check if Slack mirroring is enabled for this session
-        # Note: Database stores "true"/"false" as strings, not booleans
-        slack_enabled = session.get("slack_enabled", "true")
-        if slack_enabled == "false" or slack_enabled is False:
+        # Handle both string ('true'/'false') and boolean values
+        slack_enabled = session.get("slack_enabled", True)
+        if slack_enabled in ("false", False, "False", 0, "0"):
             log_info(f"Slack mirroring disabled for session {session_id[:8]}, skipping")
             debug_log("slack_enabled=false, skipping Slack post", "REGISTRY")
             sys.exit(0)
