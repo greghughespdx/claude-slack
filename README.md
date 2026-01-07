@@ -145,31 +145,25 @@ claude-slack-test
 
 ### Starting a New Claude Session with Slack
 
-If you used `install.sh`, you'll have a `claudes` alias:
-
 ```bash
 # Navigate to your project
 cd /path/to/your/project
 
 # Start Claude with Slack integration
-claudes
-
-# Or resume your last session
-claudes resume
-```
-
-Alternatively, use the full command:
-
-```bash
 claude-slack
 
-# You should receive a new message in the slack channel you added to your .env file
-# You can reply 'as a thread' to the message to communicate with the claude session that sent the initial message
-# If your reply doesn't automatically get a green checkmark emoji applied to it, you need to @mention your claud bot to wake it back up and try your message again.
-# Claude code should receive your message as terminal input, generate it's response, and send it back to slack automatically.  You can continue the conversation as needed.
-
+# Or resume your last session
+claude-slack resume
 ```
 
+If you used `install.sh`, you can also use `claudes` as a shorthand alias:
+
+```bash
+claudes          # same as claude-slack
+claudes resume   # same as claude-slack resume
+```
+
+You should receive a new message in the Slack channel you added to your .env file. You can reply "as a thread" to the message to communicate with the Claude session that sent the initial message. If your reply doesn't automatically get a green checkmark emoji applied to it, you need to @mention your Claude bot to wake it back up and try your message again. Claude Code should receive your message as terminal input, generate its response, and send it back to Slack automatically. You can continue the conversation as needed.
 
 ## Available Commands
 
