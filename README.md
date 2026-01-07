@@ -262,14 +262,15 @@ If you still experience issues, ensure your Slack app has all the scopes and eve
 ### Checking Logs
 
 ```bash
-# Check listener logs
-tail -f /tmp/slack_listener.log
+# Check listener logs (if using install.sh/launchd)
+tail -f ~/.claude/slack/logs/launchd_stdout.log
 
 # Check hook execution logs
 tail -f /tmp/stop_hook_debug.log
+tail -f /tmp/pretooluse_hook_debug.log
 
 # Check session registry
-sqlite3 /tmp/claude_sessions/registry.db "SELECT * FROM sessions;"
+sqlite3 ~/.claude/slack/registry.db "SELECT * FROM sessions;"
 ```
 
 ### Common Issues
@@ -338,15 +339,15 @@ Contributions are welcome! Please:
 
 This integration uses three Claude Code hooks:
 
-### 1. **PreToolUse Hook** (on_pretooluse.py) - NEW! ✨
+### 1. **PreToolUse Hook** (on_pretooluse.py)
 - **Fires:** Before Claude executes any tool (Bash, Write, Edit, Read, etc.)
-- **Purpose:** Sends detailed permission requests to Slack with FULL context
+- **Purpose:**
+  - Sends "⏳ Working on it..." standby message on first tool call
+  - Sends detailed permission requests (AskUserQuestion) to Slack
 - **What you see:**
-  - Actual bash commands before execution
-  - File paths being written/edited/read
-  - Search patterns and parameters
-  - Everything Claude wants to do, before it happens
-- **Why it's important:** Allows you to make informed security decisions remotely
+  - Standby indicator during long operations
+  - Full question context when Claude asks for input
+- **Why it's important:** Keeps you informed during long tool chains
 
 ### 2. **Notification Hook** (on_notification.py)
 - **Fires:** When Claude sends generic notifications (idle prompts, auth messages)
@@ -371,9 +372,9 @@ MIT License - see LICENSE file for details
 
 ## Support
 
-- Report issues: [GitHub Issues](https://github.com/YOUR_USERNAME/claude-claude-slack/issues)
+- Report issues: [GitHub Issues](https://github.com/dbenn8/claude-slack/issues)
 - Slack API docs: https://api.slack.com
-- Claude Code docs: https://claude.ai
+- Claude Code docs: https://claude.ai/code
 
 ## Credits
 
