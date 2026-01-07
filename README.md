@@ -145,11 +145,22 @@ claude-slack-test
 
 ### Starting a New Claude Session with Slack
 
+If you used `install.sh`, you'll have a `claudes` alias:
+
 ```bash
 # Navigate to your project
 cd /path/to/your/project
 
-# Initialize Slack integration for this project
+# Start Claude with Slack integration
+claudes
+
+# Or resume your last session
+claudes resume
+```
+
+Alternatively, use the full command:
+
+```bash
 claude-slack
 
 # You should receive a new message in the slack channel you added to your .env file
