@@ -105,7 +105,26 @@ SLACK_APP_TOKEN=xapp-your-app-token-here
 SLACK_CHANNEL=#your-channel-name
 ```
 
-### 4. Add to PATH (optional but recommended)
+Then run the installer:
+```bash
+./install.sh
+```
+
+The installer will:
+- Create a Python virtual environment
+- Install dependencies
+- Set up launchd services (auto-start on login)
+- Configure Claude Code hook settings
+- Add commands to your PATH
+
+### Uninstalling
+
+To remove the integration:
+```bash
+./uninstall.sh
+```
+
+### 4. Add to PATH (optional, if not using install.sh)
 
 ```bash
 echo 'export PATH="$HOME/.claude/claude-slack/bin:$PATH"' >> ~/.zshrc

@@ -20,7 +20,7 @@ if [ -f "$ENV_FILE" ]; then
     set +a
 fi
 
-REGISTRY_DB_PATH=${REGISTRY_DB_PATH:-"/tmp/claude_sessions/registry.db"}
+REGISTRY_DB_PATH=${REGISTRY_DB_PATH:-"$HOME/.claude/slack/registry.db"}
 
 # Colors
 RED='\033[0;31m'

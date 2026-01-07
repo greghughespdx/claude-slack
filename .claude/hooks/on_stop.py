@@ -2,9 +2,10 @@
 """
 Claude Code Stop Hook - Post Assistant Responses to Slack
 
-Version: 1.1.0
+Version: 1.2.0
 
 Changelog:
+- v1.2.0: Added standby flag clearing - enables standby messages in PreToolUse hook
 - v1.1.0 (2025/11/18): Fixed early termination bug - continue posting remaining chunks on failure
 - v1.0.0 (2025/11/18): Initial versioned release
 
@@ -48,10 +49,14 @@ from pathlib import Path
 from datetime import datetime
 
 # Hook version for auto-update detection
-HOOK_VERSION = "1.1.0"
+HOOK_VERSION = "1.2.0"
 
 # Debug log file path
 DEBUG_LOG = "/tmp/stop_hook_debug.log"
+
+# Standby flag settings (must match on_pretooluse.py)
+STANDBY_FLAG_DIR = "/tmp"
+STANDBY_FLAG_PREFIX = "claude_standby_"
 
 # Find claude-slack directory dynamically
 # Hooks are templates that get copied to project folders, but they need to find the
@@ -189,6 +194,22 @@ def log_info(message: str):
     print(f"[on_stop.py] {message}", file=sys.stderr)
 
 
+def clear_standby_flag(session_id: str):
+    """
+    Remove the standby flag file for this session.
+
+    Called when the Stop hook fires to allow the next response
+    to send a new standby message.
+    """
+    flag_path = os.path.join(STANDBY_FLAG_DIR, f"{STANDBY_FLAG_PREFIX}{session_id}.flag")
+    try:
+        if os.path.exists(flag_path):
+            os.remove(flag_path)
+            debug_log(f"Cleared standby flag for session {session_id[:8]}", "STANDBY")
+    except Exception as e:
+        debug_log(f"Failed to clear standby flag: {e}", "STANDBY")
+
+
 def split_message(text: str, max_length: int = 39000) -> list:
     """
     Split long message into chunks that fit in Slack's 40K char limit.
@@ -308,6 +329,9 @@ def main():
         if not session_id:
             log_error("No session_id in hook data")
             sys.exit(0)
+
+        # Clear standby flag - response is complete, next response can send new standby
+        clear_standby_flag(session_id)
 
         # Use transcript path from hook data, or construct from environment
         if not transcript_path:
