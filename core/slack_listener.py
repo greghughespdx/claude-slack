@@ -490,7 +490,7 @@ def handle_message(event, say):
     # This ensures you see Claude's response when you engage from Slack
     if thread_ts and registry_db:
         session = registry_db.get_by_thread(thread_ts)
-        if session and session.get('slack_enabled') == 'false':
+        if session and session.get('slack_enabled') in (False, 'false'):
             import sqlite3
             conn = sqlite3.connect(REGISTRY_DB_PATH)
             conn.execute("UPDATE sessions SET slack_enabled='true' WHERE slack_thread_ts=?", (thread_ts,))
@@ -717,7 +717,7 @@ def handle_mirror_status(ack, body, client):
         return
 
     slack_enabled = session.get('slack_enabled', 'true')
-    mirror_status = "✅ Enabled" if slack_enabled == 'true' else "🔇 Disabled"
+    mirror_status = "✅ Enabled" if slack_enabled in (True, 'true') else "🔇 Disabled"
     status = session.get('status', 'unknown')
 
     client.chat_postMessage(

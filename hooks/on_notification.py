@@ -1154,7 +1154,7 @@ def main():
             log_error(f"registry_db module not found: {e}")
             sys.exit(0)
 
-        db_path = os.environ.get("REGISTRY_DB_PATH", os.path.expanduser("~/.claude/slack/registry.db"))
+        db_path = os.path.expanduser(os.environ.get("REGISTRY_DB_PATH", "~/.claude/slack/registry.db"))
         debug_log(f"Registry database path: {db_path}", "REGISTRY")
 
         if not os.path.exists(db_path):

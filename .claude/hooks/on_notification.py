@@ -1154,7 +1154,7 @@ def main():
             log_error(f"registry_db module not found: {e}")
             sys.exit(0)
 
-        db_path = os.environ.get("REGISTRY_DB_PATH", os.path.expanduser("~/.claude/slack/registry.db"))
+        db_path = os.path.expanduser(os.environ.get("REGISTRY_DB_PATH", "~/.claude/slack/registry.db"))
         debug_log(f"Registry database path: {db_path}", "REGISTRY")
 
         if not os.path.exists(db_path):
@@ -1172,9 +1172,9 @@ def main():
             sys.exit(0)
 
         # Check if Slack mirroring is enabled for this session
-        # Note: Database stores "true"/"false" as strings, not booleans
-        slack_enabled = session.get("slack_enabled", "true")
-        if slack_enabled == "false" or slack_enabled is False:
+        # Handle both string ('true'/'false') and boolean values
+        slack_enabled = session.get("slack_enabled", True)
+        if slack_enabled in ("false", False, "False", 0, "0"):
             log_info(f"Slack mirroring disabled for session {session_id[:8]}, skipping")
             debug_log("slack_enabled=false, skipping Slack post", "REGISTRY")
             sys.exit(0)

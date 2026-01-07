@@ -173,8 +173,20 @@ else
     if grep -q "claude-slack" "$CLAUDE_SETTINGS" 2>/dev/null; then
         echo -e "${GREEN}  Claude Code settings already configured for claude-slack${NC}"
     else
-        echo -e "${YELLOW}  Manual step required: Merge hooks from $TEMPLATE_SETTINGS into $CLAUDE_SETTINGS${NC}"
-        echo -e "${YELLOW}  Or replace with: cp $TEMPLATE_SETTINGS $CLAUDE_SETTINGS${NC}"
+        # Auto-merge hooks using jq
+        if command -v jq &> /dev/null; then
+            echo -e "${BLUE}  Merging claude-slack hooks into existing settings...${NC}"
+            # Merge hooks from template into existing settings (template hooks take precedence)
+            jq -s '.[0] * {hooks: (.[0].hooks // {}) * .[1].hooks}' \
+                "$CLAUDE_SETTINGS" "$TEMPLATE_SETTINGS" > "$CLAUDE_SETTINGS.tmp" \
+                && mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
+            echo -e "${GREEN}  Merged hooks successfully${NC}"
+        else
+            echo -e "${YELLOW}  jq not found - manual merge required${NC}"
+            echo -e "${YELLOW}  Install jq: brew install jq${NC}"
+            echo -e "${YELLOW}  Then re-run installer, or manually merge:${NC}"
+            echo -e "${YELLOW}    $TEMPLATE_SETTINGS into $CLAUDE_SETTINGS${NC}"
+        fi
     fi
 fi
 echo ""
