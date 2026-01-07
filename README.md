@@ -131,15 +131,29 @@ echo 'export PATH="$HOME/.claude/claude-slack/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-### 5. Test the Installation
+### 5. Verify Installation
+
+If you used `install.sh`, services are already running. Verify with:
+
+```bash
+# Check services are running
+launchctl list | grep claude-slack
+
+# Test Slack connection
+claude-slack-test
+```
+
+<details>
+<summary>Manual start (if not using install.sh)</summary>
 
 ```bash
 # Start the Slack listener
 claude-slack-listener
 
-# In another terminal, test sending a message
-claude-slack-test
+# In another terminal, start the registry
+claude-slack-registry
 ```
+</details>
 
 ## Usage
 
@@ -192,100 +206,33 @@ From within a session's Slack thread, you can send these commands:
 
 The `!restart` command requires using `claude-slack-hybrid` to start your session.
 
-## Running as Background Services (launchd)
+## Background Services (launchd)
 
-For persistent operation, you can run the listener and registry as macOS launchd services:
+**If you used `install.sh`**, launchd services are already configured and running. The listener and registry start automatically on login.
 
-### Create the plist files
-
-**Listener service** (`~/Library/LaunchAgents/com.claude-slack.listener.plist`):
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.claude-slack.listener</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/Users/YOUR_USER/.claude/claude-slack/.venv/bin/python3</string>
-        <string>-u</string>
-        <string>/Users/YOUR_USER/.claude/claude-slack/core/slack_listener.py</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>/Users/YOUR_USER/.claude/claude-slack</string>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/Users/YOUR_USER/.claude/slack/logs/launchd_stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>/Users/YOUR_USER/.claude/slack/logs/launchd_stderr.log</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
-        <key>SLACK_BOT_TOKEN</key>
-        <string>xoxb-your-token</string>
-        <key>SLACK_APP_TOKEN</key>
-        <string>xapp-your-token</string>
-        <key>SLACK_CHANNEL</key>
-        <string>#your-channel</string>
-    </dict>
-</dict>
-</plist>
-```
-
-**Registry service** (`~/Library/LaunchAgents/com.claude-slack.registry.plist`):
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.claude-slack.registry</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/Users/YOUR_USER/.claude/claude-slack/bin/claude-slack-registry</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>/Users/YOUR_USER/.claude/claude-slack</string>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/Users/YOUR_USER/.claude/slack/logs/registry_stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>/Users/YOUR_USER/.claude/slack/logs/registry_stderr.log</string>
-</dict>
-</plist>
-```
-
-### Load the services
+### Managing Services
 
 ```bash
-# Create log directory
-mkdir -p ~/.claude/slack/logs
-
-# Load services
-launchctl load ~/Library/LaunchAgents/com.claude-slack.listener.plist
-launchctl load ~/Library/LaunchAgents/com.claude-slack.registry.plist
-
-# Verify running
+# Check status
 launchctl list | grep claude-slack
-```
-
-### Manage services
-
-```bash
-# Stop services
-launchctl unload ~/Library/LaunchAgents/com.claude-slack.listener.plist
 
 # View logs
 tail -f ~/.claude/slack/logs/launchd_stdout.log
+
+# Stop services
+launchctl unload ~/Library/LaunchAgents/com.claude-slack.listener.plist
+launchctl unload ~/Library/LaunchAgents/com.claude-slack.registry.plist
+
+# Start services
+launchctl load ~/Library/LaunchAgents/com.claude-slack.listener.plist
+launchctl load ~/Library/LaunchAgents/com.claude-slack.registry.plist
 ```
+
+<details>
+<summary>Manual setup (if not using install.sh)</summary>
+
+See the plist templates in `templates/` directory. Copy them to `~/Library/LaunchAgents/`, replace `{{HOME}}` and `{{VENV_PYTHON}}` with your paths, then load with `launchctl load`.
+</details>
 
 ## Troubleshooting
 
