@@ -124,12 +124,18 @@ To remove the integration:
 ./uninstall.sh
 ```
 
-### 4. Add to PATH (optional, if not using install.sh)
+### 4. Add to PATH (only if installing manually)
+
+If you used `install.sh`, PATH is already configured for you. Skip to step 5.
+
+<details>
+<summary>Manual PATH setup</summary>
 
 ```bash
 echo 'export PATH="$HOME/.claude/claude-slack/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
+</details>
 
 ### 5. Verify Installation
 
@@ -288,23 +294,29 @@ sqlite3 /tmp/claude_sessions/registry.db "SELECT * FROM sessions;"
 
 ```
 ~/.claude/claude-slack/
-├── core/                 # Core Python modules
-│   ├── slack_listener.py      # Main Slack event listener
-│   ├── session_registry.py    # Session management
-│   ├── claude_wrapper_multi.py # Multi-session Claude wrapper
-│   ├── transcript_parser.py   # Parse Claude transcripts
-│   └── config.py              # Configuration management
-├── hooks/                # Claude Code hook templates
-│   ├── on_pretooluse.py      # Permission requests with full context (NEW!)
-│   ├── on_stop.py            # Response completion hook
-│   ├── on_notification.py    # User notification hook
+├── core/                       # Core Python modules
+│   ├── slack_listener.py       # Main Slack event listener
+│   ├── session_registry.py     # Session management service
+│   ├── registry_db.py          # SQLite session database
+│   ├── claude_wrapper_hybrid.py # PTY wrapper for bidirectional Slack
+│   ├── transcript_parser.py    # Parse Claude transcripts
+│   └── config.py               # Configuration management
+├── hooks/                      # Claude Code hook templates
+│   ├── on_pretooluse.py        # Standby messages + permission prompts
+│   ├── on_stop.py              # Response completion → Slack
+│   ├── on_notification.py      # User notifications → Slack
 │   └── settings.local.json.template
-├── bin/                  # Executable scripts
-│   ├── claude-slack          # Project initialization
-│   ├── claude-slack-listener # Start listener daemon
-│   └── ...
-├── .env.example          # Environment template
-└── README.md            # This file
+├── bin/                        # Executable scripts
+│   ├── claude-slack            # Start session with Slack
+│   ├── claude-slack-listener   # Listener daemon
+│   ├── claude-slack-registry   # Registry service
+│   ├── claude-slack-toggle     # Toggle mirroring on/off
+│   └── ...                     # See Available Commands
+├── templates/                  # launchd plist templates
+├── install.sh                  # Automated installer
+├── uninstall.sh                # Clean uninstaller
+├── .env.example                # Environment template
+└── README.md
 ```
 
 ## Security
