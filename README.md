@@ -208,7 +208,7 @@ From within a session's Slack thread, you can send these commands:
 | `!slack on` | `!on` | Enable Slack mirroring for session |
 | `!slack off` | `!off` | Disable Slack mirroring |
 | `!slack status` | `!status` | Check current mirroring status |
-| `!restart` | - | Kill and restart the Claude session |
+| `!restart` | - | Kill and restart the same Claude session |
 
 The `!restart` command requires using `claude-slack-hybrid` to start your session.
 
