@@ -222,10 +222,7 @@ class RegistryClient:
             self._log("No session_id to end", "warning")
             return False
 
-        if not self.available or not os.path.exists(self.registry_socket_path):
-            self._log("Registry not available for end_session", "debug")
-            return False
-
+        # Try socket-based communication with the registry
         try:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             sock.settimeout(2)  # Short timeout - cleanup shouldn't block
@@ -252,8 +249,9 @@ class RegistryClient:
             sock.close()
             return True  # Command sent even if no response
 
-        except Exception as e:
-            self._log(f"Error ending session: {e}", "warning")
+        except (socket.error, ConnectionRefusedError, FileNotFoundError) as e:
+            self._log(f"Socket-based end_session failed: {e}", "debug")
+            # Socket approach failed - will be handled by cleanup() fallback
             return False
 
     def _kill_registry_process(self):
@@ -961,11 +959,37 @@ class HybridPTYWrapper:
         # Mark session as ended in registry FIRST (before removing socket)
         # This prevents slack_listener from trying to send to dead socket
         if hasattr(self, 'registry') and self.registry:
+            # Try socket-based END_SESSION first
+            socket_success = False
             try:
-                self.registry.end_session(self.session_id)
-                self.logger.info(f"Session {self.session_id[:8]} marked as ended in registry")
+                socket_success = self.registry.end_session(self.session_id)
+                if socket_success:
+                    self.logger.info(f"Session {self.session_id[:8]} marked as ended via socket")
             except Exception as e:
-                self.logger.warning(f"Failed to mark session as ended: {e}")
+                self.logger.warning(f"Socket-based end_session failed: {e}")
+
+            # Fallback to direct database access if socket failed
+            if not socket_success:
+                self.logger.info("Attempting direct database fallback for end_session")
+                try:
+                    from core.registry_db import RegistryDatabase
+                    from core.config import get_registry_db_path
+
+                    db_path = os.environ.get("REGISTRY_DB_PATH", get_registry_db_path())
+                    db = RegistryDatabase(db_path)
+                    db_success = db.end_session(self.session_id)
+
+                    if db_success:
+                        self.logger.info(f"Session {self.session_id[:8]} marked as ended via direct DB access")
+                    else:
+                        # Make failure visible
+                        error_msg = f"FAILED TO END SESSION: Both socket and DB methods failed for {self.session_id[:8]}"
+                        self.logger.error(error_msg)
+                        print(f"\n{RED}[ERROR] {error_msg}{RESET}", file=sys.stderr)
+                except Exception as e:
+                    error_msg = f"Direct DB fallback failed: {e}"
+                    self.logger.error(error_msg)
+                    print(f"\n{RED}[ERROR] {error_msg}{RESET}", file=sys.stderr)
 
         # Close socket
         if self.socket:
