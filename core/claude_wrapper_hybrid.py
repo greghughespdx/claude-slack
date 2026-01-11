@@ -49,6 +49,7 @@ import logging.handlers
 import fcntl
 import struct
 import uuid
+import atexit
 from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
@@ -210,6 +211,58 @@ class RegistryClient:
             return False
         except Exception as e:
             self._log(f"Registry health check error: {e}", "debug")
+            return False
+
+    def end_session(self, session_id=None):
+        """
+        Mark session as ended in the registry database.
+
+        Called during cleanup to prevent stale 'active' entries that cause
+        BrokenPipeError when slack_listener tries to send to dead sockets.
+
+        Args:
+            session_id: Session ID to mark as ended. Defaults to self.session_id.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        target_session_id = session_id or self.session_id
+        if not target_session_id:
+            self._log("No session_id to end", "warning")
+            return False
+
+        if not self.available or not os.path.exists(self.registry_socket_path):
+            self._log("Registry not available for end_session", "debug")
+            return False
+
+        try:
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.settimeout(2)  # Short timeout - cleanup shouldn't block
+            sock.connect(self.registry_socket_path)
+
+            message = {
+                "command": "END_SESSION",
+                "data": {"session_id": target_session_id}
+            }
+            sock.sendall(json.dumps(message).encode('utf-8') + b'\n')
+
+            # Try to receive response (best effort)
+            try:
+                response_data = sock.recv(4096)
+                if response_data:
+                    response = json.loads(response_data.decode('utf-8'))
+                    success = response.get("success", False)
+                    self._log(f"End session {target_session_id[:8]}: {success}", "info")
+                    sock.close()
+                    return success
+            except socket.timeout:
+                self._log(f"Timeout waiting for end_session response", "debug")
+
+            sock.close()
+            return True  # Command sent even if no response
+
+        except Exception as e:
+            self._log(f"Error ending session: {e}", "warning")
             return False
 
     def _kill_registry_process(self):
@@ -901,8 +954,23 @@ class HybridPTYWrapper:
 
     def cleanup(self):
         """Clean up resources"""
+        # Idempotency guard - prevent double cleanup
+        if hasattr(self, '_cleanup_done') and self._cleanup_done:
+            self.logger.debug("Cleanup already completed, skipping")
+            return
+        self._cleanup_done = True
+
         self.logger.info("Starting cleanup")
         self.running = False
+
+        # Mark session as ended in registry FIRST (before removing socket)
+        # This prevents slack_listener from trying to send to dead socket
+        if hasattr(self, 'registry') and self.registry:
+            try:
+                self.registry.end_session(self.session_id)
+                self.logger.info(f"Session {self.session_id[:8]} marked as ended in registry")
+            except Exception as e:
+                self.logger.warning(f"Failed to mark session as ended: {e}")
 
         # Close socket
         if self.socket:
@@ -1011,6 +1079,18 @@ class HybridPTYWrapper:
 
             else:  # Parent process
                 self.logger.info(f"PTY forked successfully - PID: {pid}, master_fd: {self.master_fd}")
+
+                # Register cleanup handlers for graceful shutdown
+                # These ensure the session is marked as ended even on SIGTERM/SIGINT
+                def signal_handler(signum, frame):
+                    self.logger.info(f"Received signal {signum}, initiating cleanup")
+                    self.cleanup()
+                    sys.exit(0)
+
+                signal.signal(signal.SIGTERM, signal_handler)
+                signal.signal(signal.SIGINT, signal_handler)
+                atexit.register(self.cleanup)
+                self.logger.debug("Cleanup handlers registered (SIGTERM, SIGINT, atexit)")
 
                 # Wait for async Slack thread creation to complete
                 # The REGISTER command creates the thread asynchronously, so we need to
